@@ -23,6 +23,7 @@
 #include "av1/common/onyxc_int.h"
 #include "av1/common/resize.h"
 #include "av1/encoder/aq_cyclicrefresh.h"
+#include "av1/encoder/aq_mbtree.h"
 #if CONFIG_ANS
 #include "aom_dsp/ans.h"
 #include "aom_dsp/buf_ans.h"
@@ -116,8 +117,9 @@ typedef enum {
   VARIANCE_AQ = 1,
   COMPLEXITY_AQ = 2,
   CYCLIC_REFRESH_AQ = 3,
+  MBTREE_AQ = 4,
 #if CONFIG_DELTA_Q && !CONFIG_EXT_DELTA_Q
-  DELTA_AQ = 4,
+  DELTA_AQ = 5,
 #endif
   AQ_MODE_COUNT  // This should always be the last member of the enum
 } AQ_MODE;
@@ -477,6 +479,7 @@ typedef struct AV1_COMP {
 
   uint8_t *segmentation_map;
 
+  MBTreeContext mbtree;
   CYCLIC_REFRESH *cyclic_refresh;
   ActiveMap active_map;
 

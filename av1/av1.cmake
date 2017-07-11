@@ -93,6 +93,8 @@ set(AOM_AV1_DECODER_SOURCES
 
 set(AOM_AV1_ENCODER_SOURCES
     "${AOM_ROOT}/av1/av1_cx_iface.c"
+    "${AOM_ROOT}/av1/encoder/aq_mbtree.c"
+    "${AOM_ROOT}/av1/encoder/aq_mbtree.h"
     "${AOM_ROOT}/av1/encoder/aq_complexity.c"
     "${AOM_ROOT}/av1/encoder/aq_complexity.h"
     "${AOM_ROOT}/av1/encoder/aq_cyclicrefresh.c"
