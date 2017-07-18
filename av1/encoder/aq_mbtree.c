@@ -289,16 +289,31 @@ static void alloc_root_tree(struct AV1_COMP *cpi)
   }
 }
 
+static void zero_mb_tree(MBTreeEntry *mbt, int level, int limit)
+{
+  if (level >= limit)
+    return;
+  mbt->prop_cost = 0;
+  mbt->last_intra = 0;
+  for (int i = 0; i < 4; i++)
+    zero_mb_tree(&mbt->subdiv[i], level + 1, limit);
+}
+
 void av1_mbtree_update(struct AV1_COMP *cpi)
 {
+  MBTreeContext *mbctx = &cpi->mbtree;
+
   alloc_root_tree(cpi);
+
+  for (int i = 0; i < (mbctx->tree_width*mbctx->tree_height); i++)
+    zero_mb_tree(&mbctx->tree[i], 0, 2);
 
   int last_lookahead = av1_lookahead_depth(cpi->lookahead);
   for (int i = last_lookahead - 1; i >= 0; i--)
     process_frame(cpi, i);
 }
 
-#define AQ_C_SEGMENTS 6
+#define AQ_C_SEGMENTS 5
 
 void av1_mbtree_frame_setup(struct AV1_COMP *cpi)
 {
