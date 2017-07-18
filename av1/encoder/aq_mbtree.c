@@ -298,7 +298,7 @@ void av1_mbtree_update(struct AV1_COMP *cpi)
     process_frame(cpi, i);
 }
 
-#define AQ_C_SEGMENTS 5
+#define AQ_C_SEGMENTS 6
 
 void av1_mbtree_frame_setup(struct AV1_COMP *cpi)
 {
@@ -328,7 +328,7 @@ void av1_mbtree_frame_setup(struct AV1_COMP *cpi)
   av1_disable_segfeature(seg, 0, SEG_LVL_ALT_Q);
 
   // Use some of the segments for in frame Q adjustment.
-  for (segment = 1; segment < AQ_C_SEGMENTS; ++segment) {
+  for (segment = 0; segment < AQ_C_SEGMENTS; ++segment) {
     int qindex_delta = segment;
 
     // For AQ complexity mode, we dont allow Q0 in a segment if the base
@@ -338,7 +338,8 @@ void av1_mbtree_frame_setup(struct AV1_COMP *cpi)
     if ((cm->base_qindex != 0) && ((cm->base_qindex + qindex_delta) == 0)) {
       qindex_delta = -cm->base_qindex + 1;
     }
-    if ((cm->base_qindex + qindex_delta) > 0) {
+
+    if (qindex_delta && ((cm->base_qindex + qindex_delta) > 0)) {
       av1_enable_segfeature(seg, segment, SEG_LVL_ALT_Q);
       av1_set_segdata(seg, segment, SEG_LVL_ALT_Q, qindex_delta);
     }
@@ -364,18 +365,12 @@ void av1_mbtree_select_segment(struct AV1_COMP *cpi, MACROBLOCK *mb, BLOCK_SIZE 
       float prop_cost = mb_stats->prop_cost;
       float last_intra = mb_stats->last_intra;
       float qdif = -log2f((last_intra + prop_cost + 1)/(prop_cost + 1));
-      if (!isnan(qdif)) {
-        int vare = (int)lrintf(qdif);
-        if (vare > 4)
-          vare = 4;
-        else if (vare < 0)
-          vare = 0;
-        seg = vare;
-      }
+      if (!isnan(qdif))
+        seg = (int)lrintf(qdif);
     }
   } else if (bs == BLOCK_32X32) {
     int off;
-    int segs[4];
+    int segs[4] = { 0, 0, 0, 0 };
     for (off = 0; off < 4; off++) {
       int px_x = ((mi_col +  (off % 2)) * 4)/16;
       int px_y = ((mi_row + !(off % 2)) * 4)/16;
@@ -384,26 +379,19 @@ void av1_mbtree_select_segment(struct AV1_COMP *cpi, MACROBLOCK *mb, BLOCK_SIZE 
         float prop_cost = mb_stats->prop_cost;
         float last_intra = mb_stats->last_intra;
         float qdif = -log2f((last_intra + prop_cost + 1)/(prop_cost + 1));
-        if (!isnan(qdif)) {
-          int vare = (int)lrintf(qdif);
-          if (vare > 4)
-            vare = 4;
-          else if (vare < 0)
-            vare = 0;
-          segs[off] = vare;
-        } else {
-          segs[off] = 0;
-        }
+        if (!isnan(qdif))
+          segs[off] = (int)lrintf(qdif);
       }
     }
     float avg = (segs[0] + segs[1] + segs[2] + segs[3])/4.0f;
-    int iavg = (int)lrintf(avg);
-    if (iavg > 4)
-      iavg = 4;
-    else if (iavg < 0)
-      iavg = 0;
-    seg = iavg;
+    seg = (int)lrintf(avg);
   }
+
+  seg += (AQ_C_SEGMENTS >> 1);
+  if (seg < 0)
+   seg = 0;
+  if (seg >= AQ_C_SEGMENTS)
+   seg = AQ_C_SEGMENTS - 1;
 
   // Fill in the entires in the segment map corresponding to this SB64.
   for (y = 0; y < ymis; y++) {
