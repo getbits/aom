@@ -4710,36 +4710,21 @@ static size_t read_uncompressed_header(AV1Decoder *pbi,
   setup_segmentation(cm, rb);
 
 #if CONFIG_DELTA_Q
-  {
-    struct segmentation *const seg = &cm->seg;
-    int segment_quantizer_active = 0;
-    for (i = 0; i < MAX_SEGMENTS; i++) {
-      if (segfeature_active(seg, i, SEG_LVL_ALT_Q)) {
-        segment_quantizer_active = 1;
-      }
-    }
-
-    cm->delta_q_res = 1;
+  cm->delta_q_res = 1;
 #if CONFIG_EXT_DELTA_Q
-    cm->delta_lf_res = 1;
+  cm->delta_lf_res = 1;
 #endif
-    if (segment_quantizer_active == 0 && cm->base_qindex > 0) {
-      cm->delta_q_present_flag = aom_rb_read_bit(rb);
-    } else {
-      cm->delta_q_present_flag = 0;
-    }
-    if (cm->delta_q_present_flag) {
-      xd->prev_qindex = cm->base_qindex;
-      cm->delta_q_res = 1 << aom_rb_read_literal(rb, 2);
+  cm->delta_q_present_flag = aom_rb_read_bit(rb);
+  if (cm->delta_q_present_flag) {
+    xd->prev_qindex = cm->base_qindex;
+    cm->delta_q_res = 1 << aom_rb_read_literal(rb, 2);
 #if CONFIG_EXT_DELTA_Q
-      assert(!segment_quantizer_active);
-      cm->delta_lf_present_flag = aom_rb_read_bit(rb);
-      if (cm->delta_lf_present_flag) {
-        xd->prev_delta_lf_from_base = 0;
-        cm->delta_lf_res = 1 << aom_rb_read_literal(rb, 2);
-      }
-#endif  // CONFIG_EXT_DELTA_Q
+    cm->delta_lf_present_flag = aom_rb_read_bit(rb);
+    if (cm->delta_lf_present_flag) {
+      xd->prev_delta_lf_from_base = 0;
+      cm->delta_lf_res = 1 << aom_rb_read_literal(rb, 2);
     }
+#endif  // CONFIG_EXT_DELTA_Q
   }
 #endif
 

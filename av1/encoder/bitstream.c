@@ -4371,33 +4371,18 @@ static void write_uncompressed_header(AV1_COMP *cpi,
   encode_quantization(cm, wb);
   encode_segmentation(cm, xd, wb);
 #if CONFIG_DELTA_Q
-  {
-    int i;
-    struct segmentation *const seg = &cm->seg;
-    int segment_quantizer_active = 0;
-    for (i = 0; i < MAX_SEGMENTS; i++) {
-      if (segfeature_active(seg, i, SEG_LVL_ALT_Q)) {
-        segment_quantizer_active = 1;
-      }
-    }
 
-    if (cm->delta_q_present_flag)
-      assert(segment_quantizer_active == 0 && cm->base_qindex > 0);
-    if (segment_quantizer_active == 0 && cm->base_qindex > 0) {
-      aom_wb_write_bit(wb, cm->delta_q_present_flag);
-      if (cm->delta_q_present_flag) {
-        aom_wb_write_literal(wb, OD_ILOG_NZ(cm->delta_q_res) - 1, 2);
-        xd->prev_qindex = cm->base_qindex;
+  aom_wb_write_bit(wb, cm->delta_q_present_flag);
+  if (cm->delta_q_present_flag) {
+    aom_wb_write_literal(wb, OD_ILOG_NZ(cm->delta_q_res) - 1, 2);
+    xd->prev_qindex = cm->base_qindex;
 #if CONFIG_EXT_DELTA_Q
-        assert(seg->abs_delta == SEGMENT_DELTADATA);
-        aom_wb_write_bit(wb, cm->delta_lf_present_flag);
-        if (cm->delta_lf_present_flag) {
-          aom_wb_write_literal(wb, OD_ILOG_NZ(cm->delta_lf_res) - 1, 2);
-          xd->prev_delta_lf_from_base = 0;
-        }
-#endif  // CONFIG_EXT_DELTA_Q
-      }
+    aom_wb_write_bit(wb, cm->delta_lf_present_flag);
+    if (cm->delta_lf_present_flag) {
+      aom_wb_write_literal(wb, OD_ILOG_NZ(cm->delta_lf_res) - 1, 2);
+      xd->prev_delta_lf_from_base = 0;
     }
+#endif  // CONFIG_EXT_DELTA_Q
   }
 #endif
 #if CONFIG_CDEF
