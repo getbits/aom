@@ -391,14 +391,22 @@ void av1_mbtree_select_segment(struct AV1_COMP *cpi, MACROBLOCK *mb, BLOCK_SIZE 
   int depth;
   int q_cnt = 0;
   float q_sum = 0.0f;
-  int px_x = (mi_col * 4)/16;
-  int px_y = (mi_row * 4)/16;
-  if (bs == BLOCK_64X64)
+  int px_x, px_y;
+  if (bs == BLOCK_64X64) {
     depth = 0;
-  else if (bs == BLOCK_32X32)
+    px_x = (mi_col * 4)/64;
+    px_y = (mi_row * 4)/64;
+  } else if (bs == BLOCK_32X32) {
     depth = 1;
-  else
+    px_x = (mi_col * 4)/32;
+    px_y = (mi_row * 4)/32;
+  } else if (bs == BLOCK_16X16) {
     depth = 2;
+    px_x = (mi_col * 4)/16;
+    px_y = (mi_row * 4)/16;
+  } else {
+    return;
+  }
   MBTreeEntry *mb_stats = get_mb(mbctx, px_x, px_y, depth);
   sum_quants_rec(mb_stats, &q_sum, &q_cnt);
   seg = (int)lrintf(q_sum/q_cnt);
@@ -421,6 +429,6 @@ void av1_mbtree_uninit(struct AV1_COMP *cpi)
 {
     MBTreeContext *mbctx = &cpi->mbtree;
     aom_free(mbctx->scratch_buf);
-    //for (int i = 0; i < (mbctx->tree_width*mbctx->tree_height); i++)
-      //free_mb_tree(&mbctx->tree[i]);
+    for (int i = 0; i < (mbctx->tree_width*mbctx->tree_height); i++)
+      free_mb_tree(&mbctx->tree[i]);
 }
