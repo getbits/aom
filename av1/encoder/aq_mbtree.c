@@ -151,16 +151,20 @@ static int do_16x16_motion_search(AV1_COMP *cpi, const MV *ref_mv, int mb_row,
   return err;
 }
 
-static MBTreeEntry *get_mb(MBTreeContext *mbctx, int x, int y)
+static MBTreeEntry *get_mb(MBTreeContext *mbctx, int x, int y, int lvl)
 {
   int x64 = x >> 2;
   int y64 = y >> 2;
   MBTreeEntry *lvl0 = &mbctx->tree[y64 * mbctx->tree_width + x64];
+  if (lvl == 0)
+    return lvl0;
   x64 = (x - (x64 << 2));
   y64 = (y - (y64 << 2));
   int x32 = x64 >> 1;
   int y32 = x64 >> 1;
   MBTreeEntry *lvl1 = &lvl0->subdiv[y32*2 + x32];
+  if (lvl == 1)
+    return lvl1;
   int x16 = x32 >> 1;
   int y16 = y32 >> 1;
   return &lvl1->subdiv[y16*2 + x16];
@@ -227,7 +231,7 @@ static void process_frame(AV1_COMP *cpi, int index)
 
   for (row = 0; row < basis_rows; row++) {
     for (col = 0; col < basis_cols; col++) {
-      MBTreeEntry *mb_stats = get_mb(mbctx, row, col);
+      MBTreeEntry *mb_stats = get_mb(mbctx, row, col, 2);
 
       x->plane[0].src.buf = buf0_start + col*16;
       xd->plane[0].dst.buf = buf1_start + col*16;
@@ -262,8 +266,9 @@ static void free_mb_tree(MBTreeEntry *mbt)
 {
   if (!mbt)
     return;
-  for (int i = 0; i < 4; i++)
-    free_mb_tree(&mbt->subdiv[i]);
+  if (mbt->subdiv)
+    for (int i = 0; i < 4; i++)
+      free_mb_tree(&mbt->subdiv[i]);
   aom_free(mbt->subdiv);
 }
 
@@ -295,8 +300,9 @@ static void zero_mb_tree(MBTreeEntry *mbt, int level, int limit)
     return;
   mbt->prop_cost = 0;
   mbt->last_intra = 0;
-  for (int i = 0; i < 4; i++)
-    zero_mb_tree(&mbt->subdiv[i], level + 1, limit);
+  if (mbt->subdiv)
+    for (int i = 0; i < 4; i++)
+      zero_mb_tree(&mbt->subdiv[i], level + 1, limit);
 }
 
 void av1_mbtree_update(struct AV1_COMP *cpi)
@@ -344,20 +350,30 @@ void av1_mbtree_frame_setup(struct AV1_COMP *cpi)
 
   // Use some of the segments for in frame Q adjustment.
   for (segment = 0; segment < AQ_C_SEGMENTS; ++segment) {
-    int qindex_delta = segment;
+    int qindex_delta = segment - (AQ_C_SEGMENTS >> 1);
 
-    // For AQ complexity mode, we dont allow Q0 in a segment if the base
-    // Q is not 0. Q0 (lossless) implies 4x4 only and in AQ mode 2 a segment
-    // Q delta is sometimes applied without going back around the rd loop.
-    // This could lead to an illegal combination of partition size and q.
-    if ((cm->base_qindex != 0) && ((cm->base_qindex + qindex_delta) == 0)) {
-      qindex_delta = -cm->base_qindex + 1;
-    }
+    /* TODO check if qindex_delta brings cm->base_qindex to negative values */
 
     if (qindex_delta && ((cm->base_qindex + qindex_delta) > 0)) {
       av1_enable_segfeature(seg, segment, SEG_LVL_ALT_Q);
       av1_set_segdata(seg, segment, SEG_LVL_ALT_Q, qindex_delta);
     }
+  }
+}
+
+static void sum_quants_rec(MBTreeEntry *mbt, float *sum, int *count)
+{
+  if (!mbt)
+      return;
+  if (mbt->subdiv) {
+    for (int i = 0; i < 4; i++)
+      sum_quants_rec(&mbt->subdiv[i], sum, count);
+  } else {
+    float prop_cost = mbt->prop_cost;
+    float last_intra = mbt->last_intra;
+    float qdif = -log2f((last_intra + prop_cost + 1)/(prop_cost + 1));
+    *sum += qdif;
+    *count += 1;
   }
 }
 
@@ -372,35 +388,20 @@ void av1_mbtree_select_segment(struct AV1_COMP *cpi, MACROBLOCK *mb, BLOCK_SIZE 
   const int ymis = AOMMIN(cm->mi_rows - mi_row, mi_size_high[bs]);
   uint8_t seg = 0;
 
-  if (bs == BLOCK_16X16) {
-    int px_x = (mi_col * 4)/16;
-    int px_y = (mi_row * 4)/16;
-    if (mbctx->tree) {
-      MBTreeEntry *mb_stats = get_mb(mbctx, px_x, px_y);
-      float prop_cost = mb_stats->prop_cost;
-      float last_intra = mb_stats->last_intra;
-      float qdif = -log2f((last_intra + prop_cost + 1)/(prop_cost + 1));
-      if (!isnan(qdif))
-        seg = (int)lrintf(qdif);
-    }
-  } else if (bs == BLOCK_32X32) {
-    int off;
-    int segs[4] = { 0, 0, 0, 0 };
-    for (off = 0; off < 4; off++) {
-      int px_x = ((mi_col +  (off % 2)) * 4)/16;
-      int px_y = ((mi_row + !(off % 2)) * 4)/16;
-      if (mbctx->tree) {
-        MBTreeEntry *mb_stats = get_mb(mbctx, px_x, px_y);
-        float prop_cost = mb_stats->prop_cost;
-        float last_intra = mb_stats->last_intra;
-        float qdif = -log2f((last_intra + prop_cost + 1)/(prop_cost + 1));
-        if (!isnan(qdif))
-          segs[off] = (int)lrintf(qdif);
-      }
-    }
-    float avg = (segs[0] + segs[1] + segs[2] + segs[3])/4.0f;
-    seg = (int)lrintf(avg);
-  }
+  int depth;
+  int q_cnt = 0;
+  float q_sum = 0.0f;
+  int px_x = (mi_col * 4)/16;
+  int px_y = (mi_row * 4)/16;
+  if (bs == BLOCK_64X64)
+    depth = 0;
+  else if (bs == BLOCK_32X32)
+    depth = 1;
+  else
+    depth = 2;
+  MBTreeEntry *mb_stats = get_mb(mbctx, px_x, px_y, depth);
+  sum_quants_rec(mb_stats, &q_sum, &q_cnt);
+  seg = (int)lrintf(q_sum/q_cnt);
 
   seg += (AQ_C_SEGMENTS >> 1);
   if (seg < 0)
