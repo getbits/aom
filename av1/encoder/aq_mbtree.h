@@ -19,6 +19,8 @@
 
 #define AV1ALIGN(x, a) (((x)+(a)-1)&~((a)-1))
 
+#define AQ_C_SEGMENTS 7
+
 typedef struct MBTreeEntry {
     float prop_cost;
     float last_intra;
@@ -31,6 +33,8 @@ typedef struct MBTreeContext {
   MBTreeEntry *tree;
   int tree_width;
   int tree_height;
+
+  int segment_qs[AQ_C_SEGMENTS];
 } MBTreeContext;
 
 struct macroblock;

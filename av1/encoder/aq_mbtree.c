@@ -319,11 +319,10 @@ void av1_mbtree_update(struct AV1_COMP *cpi)
     process_frame(cpi, i);
 }
 
-#define AQ_C_SEGMENTS 5
-
 void av1_mbtree_frame_setup(struct AV1_COMP *cpi)
 {
   AV1_COMMON *const cm = &cpi->common;
+  MBTreeContext *mbctx = &cpi->mbtree;
   struct segmentation *const seg = &cm->seg;
 
   int segment;
@@ -351,13 +350,18 @@ void av1_mbtree_frame_setup(struct AV1_COMP *cpi)
   // Use some of the segments for in frame Q adjustment.
   for (segment = 0; segment < AQ_C_SEGMENTS; ++segment) {
     int qindex_delta = segment - (AQ_C_SEGMENTS >> 1);
+    qindex_delta *= (int)lrintf(log2(cm->base_qindex));
 
-    /* TODO check if qindex_delta brings cm->base_qindex to negative values */
-
-    if (qindex_delta && ((cm->base_qindex + qindex_delta) > 0)) {
-      av1_enable_segfeature(seg, segment, SEG_LVL_ALT_Q);
-      av1_set_segdata(seg, segment, SEG_LVL_ALT_Q, qindex_delta);
+    if (cm->base_qindex + qindex_delta <= 1 ||
+        cm->base_qindex + qindex_delta >= 255 ||
+        !qindex_delta) {
+      mbctx->segment_qs[segment] = 0;
+      return;
     }
+
+    mbctx->segment_qs[segment] = qindex_delta;
+    av1_enable_segfeature(seg, segment, SEG_LVL_ALT_Q);
+    av1_set_segdata(seg, segment, SEG_LVL_ALT_Q, qindex_delta);
   }
 }
 
@@ -375,6 +379,20 @@ static void sum_quants_rec(MBTreeEntry *mbt, float *sum, int *count)
     *sum += qdif;
     *count += 1;
   }
+}
+
+static inline int quant_array_idx(const float val, const int *arr, const int num)
+{
+    int i, index = 0;
+    float quant_min_err = INFINITY;
+    for (i = 0; i < num; i++) {
+        float error = (val - arr[i])*(val - arr[i]);
+        if (error < quant_min_err) {
+            quant_min_err = error;
+            index = i;
+        }
+    }
+    return index;
 }
 
 void av1_mbtree_select_segment(struct AV1_COMP *cpi, MACROBLOCK *mb, BLOCK_SIZE bs,
@@ -407,15 +425,13 @@ void av1_mbtree_select_segment(struct AV1_COMP *cpi, MACROBLOCK *mb, BLOCK_SIZE 
   } else {
     return;
   }
+
   MBTreeEntry *mb_stats = get_mb(mbctx, px_x, px_y, depth);
   sum_quants_rec(mb_stats, &q_sum, &q_cnt);
-  seg = (int)lrintf(q_sum/q_cnt);
+  seg = quant_array_idx(q_sum/q_cnt, mbctx->segment_qs, AQ_C_SEGMENTS);
 
-  seg += (AQ_C_SEGMENTS >> 1);
-  if (seg < 0)
-   seg = 0;
-  if (seg >= AQ_C_SEGMENTS)
-   seg = AQ_C_SEGMENTS - 1;
+  if (!segfeature_active(&cm->seg, seg, SEG_LVL_ALT_Q))
+    return;
 
   // Fill in the entires in the segment map corresponding to this SB64.
   for (y = 0; y < ymis; y++) {
