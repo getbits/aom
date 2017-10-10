@@ -3195,6 +3195,8 @@ void av1_remove_compressor(AV1_COMP *cpi) {
 #endif
   }
 
+  av1_mbtree_uninit(cpi);
+
   for (t = 0; t < cpi->num_workers; ++t) {
     AVxWorker *const worker = &cpi->workers[t];
     EncWorkerData *const thread_data = &cpi->tile_thr_data[t];
@@ -4774,6 +4776,14 @@ static void encode_without_recode_loop(AV1_COMP *cpi) {
     av1_setup_in_frame_q_adj(cpi);
   } else if (cpi->oxcf.aq_mode == CYCLIC_REFRESH_AQ) {
     av1_cyclic_refresh_setup(cpi);
+  } else if (cpi->oxcf.aq_mode == MBTREE_AQ) {
+    ThreadData *const td = &cpi->td;
+    MACROBLOCK *const x = &td->mb;
+    MACROBLOCKD *const xd = &x->e_mbd;
+    xd->mi = cm->mi_grid_visible;
+    xd->mi[0] = cm->mi;
+    av1_mbtree_update(cpi);
+    av1_mbtree_frame_setup(cpi);
   }
   apply_active_map(cpi);
 
@@ -4894,6 +4904,14 @@ static void encode_with_recode_loop(AV1_COMP *cpi, size_t *size,
       av1_vaq_frame_setup(cpi);
     } else if (cpi->oxcf.aq_mode == COMPLEXITY_AQ) {
       av1_setup_in_frame_q_adj(cpi);
+    } else if (cpi->oxcf.aq_mode == MBTREE_AQ) {
+      ThreadData *const td = &cpi->td;
+      MACROBLOCK *const x = &td->mb;
+      MACROBLOCKD *const xd = &x->e_mbd;
+      xd->mi = cm->mi_grid_visible;
+      xd->mi[0] = cm->mi;
+      av1_mbtree_update(cpi);
+      av1_mbtree_frame_setup(cpi);
     }
 
     // transform / motion compensation build reconstruction frame

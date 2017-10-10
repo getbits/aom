@@ -625,6 +625,12 @@ static void update_state(const AV1_COMP *const cpi, ThreadData *td,
                                         bsize, ctx->rate, ctx->dist, x->skip);
       reset_tx_size(xd, &mi_addr->mbmi, cm->tx_mode);
     }
+    if (cpi->oxcf.aq_mode == MBTREE_AQ) {
+      const uint8_t *const map =
+          seg->update_map ? cpi->segmentation_map : cm->last_frame_seg_map;
+      mi_addr->mbmi.segment_id = get_segment_id(cm, map, bsize, mi_row, mi_col);
+      reset_tx_size(xd, &mi_addr->mbmi, cm->tx_mode);
+    }
   }
 
   for (i = 0; i < MAX_MB_PLANE; ++i) {
@@ -1513,6 +1519,8 @@ static void rd_pick_sb_modes(const AV1_COMP *const cpi, TileDataEnc *tile_data,
     // If segment is boosted, use rdmult for that segment.
     if (cyclic_refresh_segment_id_boosted(mbmi->segment_id))
       x->rdmult = av1_cyclic_refresh_get_rdmult(cpi->cyclic_refresh);
+  } else if (aq_mode == MBTREE_AQ) {
+    x->rdmult = set_segment_rdmult(cpi, x, mbmi->segment_id);
   }
 
   // Find best coding mode & reconstruct the MB so it is available
@@ -1550,6 +1558,8 @@ static void rd_pick_sb_modes(const AV1_COMP *const cpi, TileDataEnc *tile_data,
 #endif  // CONFIG_EXT_REFS
        (cpi->refresh_golden_frame && !cpi->rc.is_src_frame_alt_ref))) {
     av1_caq_select_segment(cpi, x, bsize, mi_row, mi_col, rd_cost->rate);
+  } else if ((aq_mode == MBTREE_AQ) && (bsize >= BLOCK_16X16)) {
+    av1_mbtree_select_segment(cpi, x, bsize, mi_row, mi_col);
   }
 
   x->rdmult = orig_rdmult;
